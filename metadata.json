@@ -1,0 +1,8 @@
+
+{
+  "name": "SmartChef",
+  "description": "SmartChef recommends recipes based on the groceries available in a user’s kitchen. Users can manually update their pantry, receive recipe suggestions, and get reminders before ingredients expire.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
