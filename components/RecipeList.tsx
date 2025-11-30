@@ -10,6 +10,7 @@ interface RecipeListProps {
     error: string | null;
     onSearch: (query: string) => void;
     onLoadMore: () => void;
+    onRecipeSelect: (recipe: Recipe) => void;
 }
 
 const RecipeSkeleton: React.FC = () => (
@@ -24,7 +25,7 @@ const RecipeSkeleton: React.FC = () => (
     </div>
 );
 
-const RecipeList: React.FC<RecipeListProps> = ({ recipes, isLoading, isLoadingMore, hasMore, error, onSearch, onLoadMore }) => {
+const RecipeList: React.FC<RecipeListProps> = ({ recipes, isLoading, isLoadingMore, hasMore, error, onSearch, onLoadMore, onRecipeSelect }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
     const handleSearchSubmit = (e: React.FormEvent) => {
@@ -56,7 +57,7 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes, isLoading, isLoadingMo
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {recipes.map((recipe, index) => (
-                            <RecipeCard key={index} recipe={recipe} />
+                            <RecipeCard key={index} recipe={recipe} onSelect={onRecipeSelect} />
                         ))}
                     </div>
                     {hasMore && !isLoadingMore && (
@@ -123,6 +124,19 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes, isLoading, isLoadingMo
                     Search
                 </button>
             </form>
+
+            <div className="mb-6 flex flex-wrap gap-2 justify-center">
+                {['Breakfast', 'Lunch', 'Dinner', 'Juices', 'Smoothies', 'Salads', 'Snacks', 'Dessert'].map(category => (
+                    <button
+                        key={category}
+                        onClick={() => onSearch(category)}
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 transition duration-200 text-sm font-medium disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        disabled={isLoading}
+                    >
+                        {category}
+                    </button>
+                ))}
+            </div>
             
             {error && recipes.length > 0 && <p className="text-brand-red font-semibold mb-4 text-center">{error}</p>}
             {renderContent()}

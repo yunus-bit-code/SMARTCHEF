@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import type { Ingredient, Recipe } from './types';
 import Header from './components/Header';
 import Pantry from './components/Pantry';
@@ -7,6 +6,7 @@ import RecipeList from './components/RecipeList';
 import Footer from './components/Footer';
 import { db } from './firebase';
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import RecipeModal from './components/RecipeModal';
 
 const RECIPES_PER_PAGE = 6;
 
@@ -17,6 +17,10 @@ const App: React.FC = () => {
     const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
     const [hasMore, setHasMore] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [language, setLanguage] = useState<string>('English');
+    const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+    const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const currentQueryRef = useRef<string>('');
 
     useEffect(() => {
@@ -27,57 +31,118 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
+    const handleLanguageChange = (lang: string) => {
+        setLanguage(lang);
+    };
+
+    const handleRecipeSelect = (recipe: Recipe) => {
+        setSelectedRecipe(recipe);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setSelectedRecipe(null);
+        setVideoUrl(null); // Clear video when modal closes
+    };
+
+
 
     const fetchRecipesFromAPI = async (query: string, isLoadMore: boolean = false) => {
-        const pantryList = ingredients.map(i => i.name.toLowerCase());
-        const previousRecipes = isLoadMore ? recipes.map(r => r.title) : [];
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) {
+            throw new Error("GEMINI_API_KEY is not set in the environment variables.");
+        }
 
+        const pantryList = ingredients.map(i => i.name);
         const prompt = `
-            You are a recipe assistant. Your task is to find ${RECIPES_PER_PAGE} diverse recipes based on the user's request: "${query}".
-            You must use your knowledge and search the web for real, popular recipes.
-            ${previousRecipes.length > 0 ? `You have already suggested these recipes, so please provide different ones: ${previousRecipes.join(', ')}.` : ''}
+            You are a recipe assistant. Your task is to find 6 diverse recipes based on the user's pantry.
+            The user has the following ingredients: ${pantryList.join(', ')}.
+            
+            Please provide the response in ${language}.
 
-            The user has the following ingredients in their pantry: ${pantryList.join(', ')}. When you list ingredients for each recipe, you MUST determine if each ingredient is in the user's pantry. An ingredient is in the pantry if its name is a substring of any item in the pantry list (e.g., 'chicken' matches 'chicken breast'). Be flexible with matching.
-
-            Your response MUST be a single, valid JSON array of recipe objects, enclosed in a JSON markdown block. Do not include any text outside of the markdown block.
-
-            Each recipe object in the JSON array must have this exact structure:
+            Your response MUST be a single, valid JSON array of recipe objects, enclosed in a JSON markdown block.
+            Each recipe object must have:
             {
               "title": "Recipe Title",
-              "description": "A short, enticing description of the dish.",
-              "cuisine": "Cuisine type (e.g., Italian, Mexican)",
+              "description": "Short description",
+              "cuisine": "Cuisine type",
               "cookTime": 60,
               "ingredients": [
-                { "name": "Ingredient Name", "quantity": "e.g., 1 cup", "inPantry": true }
+                { "name": "Ingredient Name", "quantity": "Quantity", "inPantry": true/false }
               ],
-              "instructions": [
-                "Step 1...",
-                "Step 2..."
-              ]
+              "instructions": ["Step 1", "Step 2"]
             }
         `;
-        
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                tools: [{ googleSearch: {} }],
-            }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ text: prompt }]
+                }]
+            })
         });
 
-        const text = response.text;
-        const jsonMatch = text.match(/```json\s*([\sS]*?)\s*```/);
-        if (!jsonMatch || !jsonMatch[1]) {
-            throw new Error("Could not find a valid JSON response from the model.");
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
         }
-        
-        const recipeData = JSON.parse(jsonMatch[1]);
-        
-        const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-            ?.map(chunk => chunk.web)
-            .filter((web): web is { uri: string; title: string } => !!web) || [];
-        
+
+        const result = await response.json();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) {
+            console.error("No text in Gemini response");
+            throw new Error("No content generated by AI.");
+        }
+
+        // Extract JSON from code blocks or direct JSON
+        let jsonText = "";
+
+        // Try JSON markdown block first
+        const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonBlockMatch) {
+            jsonText = jsonBlockMatch[1];
+        } else {
+            // Try plain code block
+            const codeBlockMatch = text.match(/```\s*([\s\S]*?)\s*```/);
+            if (codeBlockMatch) {
+                jsonText = codeBlockMatch[1];
+            } else {
+                // Try direct JSON array
+                const arrayMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+                if (arrayMatch) {
+                    jsonText = arrayMatch[0];
+                }
+            }
+        }
+
+        if (!jsonText) {
+            console.error("Could not extract JSON. Full response:", text.substring(0, 1000));
+            throw new Error("Could not find JSON in AI response. See console for details.");
+        }
+
+        let recipeData;
+        try {
+            recipeData = JSON.parse(jsonText);
+        } catch (parseError) {
+            console.error("JSON parse error:", parseError);
+            console.error("Attempted to parse:", jsonText.substring(0, 500));
+            throw new Error("Failed to parse recipe JSON from AI response.");
+        }
+
+        if (!Array.isArray(recipeData)) {
+            console.error("Parsed data is not an array:", recipeData);
+            throw new Error("AI response is not a valid recipe array.");
+        }
+
+        const sources: { uri: string; title: string }[] = [];
         return recipeData.map((r: Omit<Recipe, 'sources'>) => ({ ...r, sources }));
     };
 
@@ -143,7 +208,7 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-brand-gray font-sans text-gray-800">
-            <Header />
+            <Header language={language} onLanguageChange={handleLanguageChange} />
             <main className="container mx-auto p-4 lg:p-8">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                     <div className="lg:col-span-5 xl:col-span-4">
@@ -157,19 +222,21 @@ const App: React.FC = () => {
                         />
                     </div>
                     <div className="lg:col-span-7 xl:col-span-8">
-                        <RecipeList 
-                            recipes={recipes} 
-                            isLoading={isLoading} 
+                        <RecipeList
+                            recipes={recipes}
+                            isLoading={isLoading}
                             isLoadingMore={isLoadingMore}
                             hasMore={hasMore}
-                            error={error} 
+                            error={error}
                             onSearch={findRecipes}
                             onLoadMore={loadMoreRecipes}
+                            onRecipeSelect={handleRecipeSelect}
                         />
                     </div>
                 </div>
             </main>
             <Footer />
+            {isModalOpen && <RecipeModal recipe={selectedRecipe} onClose={handleCloseModal} videoUrl={videoUrl} />}
         </div>
     );
 };

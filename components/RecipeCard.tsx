@@ -3,19 +3,25 @@ import type { Recipe } from '../types';
 
 interface RecipeCardProps {
     recipe: Recipe;
+    onSelect: (recipe: Recipe) => void;
 }
 
-const RecipeCard: React.FC<RecipeCardProps> = ({ recipe }) => {
-    const imageUrl = `https://picsum.photos/seed/${recipe.title.replace(/\s/g, '')}/400/300`;
+const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onSelect }) => {
+    // Use Unsplash Source API for food-relevant images based on recipe title and cuisine
+    const searchTerm = encodeURIComponent(`${recipe.title} ${recipe.cuisine} food dish`);
+    const imageUrl = `https://source.unsplash.com/400x300/?${searchTerm}`;
 
     return (
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden flex flex-col hover:shadow-2xl transition-shadow duration-300">
-            <img src={imageUrl} alt={recipe.title} className="w-full h-48 object-cover"/>
+        <div
+            className="bg-white rounded-lg shadow-lg overflow-hidden flex flex-col hover:shadow-2xl transition-shadow duration-300 cursor-pointer"
+            onClick={() => onSelect(recipe)}
+        >
+            <img src={imageUrl} alt={recipe.title} className="w-full h-48 object-cover" />
             <div className="p-4 flex flex-col flex-grow">
                 <span className="text-sm text-brand-green font-semibold mb-1">{recipe.cuisine} &bull; {recipe.cookTime} mins</span>
                 <h3 className="text-xl font-bold text-gray-800 mb-2">{recipe.title}</h3>
                 <p className="text-gray-600 text-sm mb-4 flex-grow">{recipe.description}</p>
-                
+
                 <div className="mb-4">
                     <h4 className="font-semibold mb-2">Ingredients:</h4>
                     <ul className="space-y-1 text-sm">
@@ -51,9 +57,9 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe }) => {
                         <ul className="space-y-1 text-sm">
                             {recipe.sources.map((source, index) => (
                                 <li key={index} className="truncate">
-                                    <a 
-                                        href={source.uri} 
-                                        target="_blank" 
+                                    <a
+                                        href={source.uri}
+                                        target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-blue-600 hover:underline"
                                         title={source.uri}
